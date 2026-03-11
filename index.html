@@ -1,9 +1,8 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bright Light Detection</title>
-
+<title>Bright Light Detection (Back Camera)</title>
 <style>
 body{
     margin:0;
@@ -38,61 +37,48 @@ body{
 </head>
 
 <body>
-
 <video id="video" autoplay playsinline></video>
 <canvas id="overlay"></canvas>
 <div id="info">coords: -</div>
 
 <script>
-
 const video = document.getElementById("video")
 const canvas = document.getElementById("overlay")
 const ctx = canvas.getContext("2d")
 const info = document.getElementById("info")
 
 navigator.mediaDevices.getUserMedia({
-    video: {
-        facingMode: "user"
-    }
+    video: { facingMode: { exact: "environment" } } // back camera
 })
 .then(stream => {
     video.srcObject = stream
 })
+.catch(err => {
+    console.error("Back camera not available:", err)
+})
 
 video.addEventListener("loadedmetadata", () => {
-
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-
     detectLoop()
 })
 
 function detectLoop(){
-
     ctx.drawImage(video,0,0,canvas.width,canvas.height)
-
     const frame = ctx.getImageData(0,0,canvas.width,canvas.height)
     const pixels = frame.data
 
     let sumX = 0
     let sumY = 0
     let count = 0
-
     const threshold = 240
 
     for(let y=0;y<canvas.height;y+=4){
         for(let x=0;x<canvas.width;x+=4){
-
             const i = (y * canvas.width + x) * 4
-
-            const r = pixels[i]
-            const g = pixels[i+1]
-            const b = pixels[i+2]
-
-            const brightness = (r + g + b)/3
-
+            const r = pixels[i], g = pixels[i+1], b = pixels[i+2]
+            const brightness = (r+g+b)/3
             if(brightness > threshold){
-
                 sumX += x
                 sumY += y
                 count++
@@ -103,23 +89,18 @@ function detectLoop(){
     ctx.clearRect(0,0,canvas.width,canvas.height)
 
     if(count > 20){
-
         const cx = sumX / count
         const cy = sumY / count
-
         const size = 80
-
         ctx.strokeStyle = "red"
         ctx.lineWidth = 4
         ctx.strokeRect(cx - size/2, cy - size/2, size, size)
-
         info.textContent = `coords: ${Math.round(cx)}, ${Math.round(cy)}`
     }
 
     requestAnimationFrame(detectLoop)
 }
-
 </script>
-
 </body>
+</html>
 </html>
