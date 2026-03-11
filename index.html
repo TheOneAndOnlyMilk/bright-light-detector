@@ -1,106 +1,117 @@
-<!DOCTYPE html><!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bright Light Detection (Back Camera)</title>
+<title>Range Finder Distance Calculation</title>
 <style>
-body{
-    margin:0;
-    background:black;
-    overflow:hidden;
-}
-
-#video{
-    position:absolute;
-    width:100%;
-    height:100%;
-    object-fit:cover;
-}
-
-#overlay{
-    position:absolute;
-    width:100%;
-    height:100%;
-    pointer-events:none;
-}
-
-#info{
-    position:absolute;
-    top:10px;
-    left:10px;
-    color:white;
-    background:rgba(0,0,0,0.5);
-    padding:6px;
-    font-family:monospace;
-}
+body{margin:0;background:black;overflow:hidden;font-family:monospace;}
+#video{position:absolute;width:100%;height:100%;object-fit:cover;}
+#overlay{position:absolute;width:100%;height:100%;pointer-events:none;}
+#controls{position:absolute;top:10px;left:10px;color:white;background:rgba(0,0,0,0.5);padding:6px;}
+#controls input{width:60px;}
 </style>
 </head>
-
 <body>
+
 <video id="video" autoplay playsinline></video>
 <canvas id="overlay"></canvas>
-<div id="info">coords: -</div>
+<div id="controls">
+B(mm): <input id="baseline" value="100"><br>
+f(px): <input id="focal" value="700"><br>
+<button id="capture1">Capture Frame 1</button>
+<button id="capture2">Capture Frame 2</button><br>
+Distance: <span id="distance">-</span> mm
+</div>
 
 <script>
 const video = document.getElementById("video")
 const canvas = document.getElementById("overlay")
 const ctx = canvas.getContext("2d")
-const info = document.getElementById("info")
+const baselineInput = document.getElementById("baseline")
+const focalInput = document.getElementById("focal")
+const distanceDisplay = document.getElementById("distance")
+let frame1 = null
+let frame2 = null
 
-navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { exact: "environment" } } // back camera
-})
-.then(stream => {
-    video.srcObject = stream
-})
-.catch(err => {
-    console.error("Back camera not available:", err)
-})
+navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:"environment"}}})
+.then(stream=>{video.srcObject=stream})
+.catch(err=>{console.error("Back camera not available:", err)})
 
-video.addEventListener("loadedmetadata", () => {
+video.addEventListener("loadedmetadata", ()=>{
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-    detectLoop()
+    requestAnimationFrame(drawLoop)
 })
 
-function detectLoop(){
-    ctx.drawImage(video,0,0,canvas.width,canvas.height)
-    const frame = ctx.getImageData(0,0,canvas.width,canvas.height)
+function detectBrightCentroid(frame){
     const pixels = frame.data
-
-    let sumX = 0
-    let sumY = 0
-    let count = 0
-    const threshold = 240
-
-    for(let y=0;y<canvas.height;y+=4){
-        for(let x=0;x<canvas.width;x+=4){
-            const i = (y * canvas.width + x) * 4
-            const r = pixels[i], g = pixels[i+1], b = pixels[i+2]
-            const brightness = (r+g+b)/3
-            if(brightness > threshold){
-                sumX += x
-                sumY += y
+    let sumX=0,sumY=0,count=0
+    const threshold=240
+    for(let y=0;y<frame.height;y+=2){
+        for(let x=0;x<frame.width;x+=2){
+            const i=(y*frame.width+x)*4
+            const r=pixels[i],g=pixels[i+1],b=pixels[i+2]
+            const brightness=(r+g+b)/3
+            if(brightness>threshold){
+                sumX+=x
+                sumY+=y
                 count++
             }
         }
     }
+    if(count>5){
+        return {x: sumX/count, y: sumY/count}
+    } else return null
+}
 
+function drawLoop(){
+    ctx.drawImage(video,0,0,canvas.width,canvas.height)
+    const frame = ctx.getImageData(0,0,canvas.width,canvas.height)
+    const centroid = detectBrightCentroid(frame)
     ctx.clearRect(0,0,canvas.width,canvas.height)
-
-    if(count > 20){
-        const cx = sumX / count
-        const cy = sumY / count
-        const size = 80
-        ctx.strokeStyle = "red"
-        ctx.lineWidth = 4
-        ctx.strokeRect(cx - size/2, cy - size/2, size, size)
-        info.textContent = `coords: ${Math.round(cx)}, ${Math.round(cy)}`
+    if(centroid){
+        const size=80
+        ctx.strokeStyle="red"
+        ctx.lineWidth=4
+        ctx.strokeRect(centroid.x-size/2,centroid.y-size/2,size,size)
+        ctx.fillStyle="white"
+        ctx.fillText(`coords: ${centroid.x.toFixed(1)}, ${centroid.y.toFixed(1)}`,10,canvas.height-20)
     }
+    requestAnimationFrame(drawLoop)
+}
 
-    requestAnimationFrame(detectLoop)
+// Capture frame 1
+document.getElementById("capture1").onclick=()=>{
+    const frame=ctx.getImageData(0,0,canvas.width,canvas.height)
+    const centroid=detectBrightCentroid(frame)
+    if(centroid){
+        frame1=centroid
+        alert("Frame 1 captured at x=" + centroid.x.toFixed(1))
+    } else alert("No bright object detected for frame 1")
+}
+
+// Capture frame 2 and compute distance
+document.getElementById("capture2").onclick=()=>{
+    const frame=ctx.getImageData(0,0,canvas.width,canvas.height)
+    const centroid=detectBrightCentroid(frame)
+    if(!centroid){
+        alert("No bright object detected for frame 2")
+        return
+    }
+    frame2=centroid
+    if(!frame1){alert("Please capture frame 1 first"); return}
+
+    const xDisplacement = Math.abs(frame2.x - frame1.x) // in pixels
+    const B = parseFloat(baselineInput.value) // in mm
+    const f = parseFloat(focalInput.value) // in pixels
+
+    if(xDisplacement>0){
+        const Z = (B * f) / xDisplacement
+        distanceDisplay.textContent = Z.toFixed(1)
+    } else {
+        distanceDisplay.textContent = "Inf"
+    }
 }
 </script>
 </body>
-</html>
 </html>
